@@ -1,0 +1,89 @@
+---
+services:
+  - docker:dind
+
+stages:
+  - code_validate
+  - docker_build_and_push
+  - test
+  - chart_museum
+
+flake8:
+  stage: code_validate
+  image:
+    name: alpine/flake8
+    entrypoint: ["/bin/sh", "-c"]
+  script: flake8
+  rules:
+    - when: always
+
+helm_lint:
+  stage: code_validate
+  image:
+    name: alpine/helm:3.2.1
+    entrypoint: ["/bin/sh", "-c"]
+  script: helm lint helm-chart/*
+  rules:
+    - when: always
+
+api_image:
+  stage: docker_build_and_push
+  image: docker:latest
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER docker.io --password-stdin
+  script:
+    - docker pull $CI_REGISTRY_USER/titanic-api:latest || true
+    - docker build --cache-from $CI_REGISTRY_USER/titanic-api:latest -t $CI_REGISTRY_USER/titanic-api:latest ./titanic-api/python -f docker-images/Dockerfile.api
+    - docker push $CI_REGISTRY_USER/titanic-api:latest
+
+db_image:
+  stage: docker_build_and_push
+  image: docker:latest
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER docker.io --password-stdin
+  script:
+    - docker pull $CI_REGISTRY_USER/titanic-db:latest || true
+    - docker build --cache-from $CI_REGISTRY_USER/titanic-db:latest -t $CI_REGISTRY_USER/titanic-db:latest ./titanic-api/python -f docker-images/Dockerfile.db
+    - docker push $CI_REGISTRY_USER/titanic-db:latest
+
+api_security_scan:
+  stage: test
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy image --no-progress --output scanning-report-api.txt  $CI_REGISTRY_USER/titanic-api:latest
+  artifacts:
+    reports:
+      container_scanning: scanning-report-api.txt
+
+db_security_scan:
+  stage: test
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy image --no-progress --output scanning-report-db.txt $CI_REGISTRY_USER/titanic-db:latest
+  artifacts:
+    reports:
+      container_scanning: scanning-report-db.txt
+
+helm_package:
+  stage: chart_museum
+  image:
+    name: alpine/helm:3.2.1
+    entrypoint: [""]
+  before_script:
+    - apk add git
+  script:
+    - helm package helm-chart/titanic
+    - git clone https://github.com/$GITHUB_USER_NAME/chart-museum-test
+    - mv titanic-*.tgz  chart-museum-test/docs
+    - cd chart-museum-test
+    - helm repo index docs --url https://$GITHUB_USER_NAME.github.io/chart-museum-test
+    - git config --global user.name $GITHUB_USER_NAME
+    - git config --global user.email $GITHUB_USER_EMAIL
+    - git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_USER_NAME/chart-museum-test
+    - git add .
+    - git commit -m "Automated report"
+    - git push

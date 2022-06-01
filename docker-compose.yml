@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  titanic-db:
+    build:
+      context: ./titanic-api/python
+      dockerfile: ../../docker-images/Dockerfile.db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - db:/var/lib/postgresql/data
+
+  titanic-api:
+    build:
+      context: ./titanic-api/python
+      dockerfile: ../../docker-images/Dockerfile.api
+    environment:
+      - POSTGRES_HOST=titanic-db
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=postgres
+    ports:
+      - '8080:5001'
+
+volumes:
+  db:
+    driver: local

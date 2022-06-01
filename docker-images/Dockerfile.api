@@ -1,0 +1,18 @@
+FROM ubuntu:20.04
+
+RUN useradd username -g users -s /bin/bash -d /app -m
+
+#Install Required Packages for psycopg2
+RUN apt-get update \
+  && apt-get install -y \
+    python3.8 \
+    python3-pip \
+    libpq-dev
+
+USER username
+WORKDIR /app
+COPY --chown=username:users . .
+RUN pip install -r requirements.txt
+
+EXPOSE 5001
+ENTRYPOINT python3 run.py
